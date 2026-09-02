@@ -35,40 +35,56 @@ This project takes Olist's raw, real-world Brazilian e-commerce dataset — 9 se
 
 ## Business Problems and Solutions
 
+**1. Which orders took longer than 30 days to deliver?**
+
 ```sql
--- 1. Orders that took longer than 30 days to deliver
 SELECT order_id, customer_city, customer_state, delivery_days
 FROM fact_orders
 WHERE delivery_days > 30;
+```
 
--- 2. Average delivery time by state
+**2. What is the average delivery time by state?**
+
+```sql
 SELECT customer_state,
        COUNT(*) AS total_orders,
        ROUND(AVG(delivery_days), 1) AS avg_delivery_days
 FROM fact_orders
 GROUP BY customer_state
 ORDER BY avg_delivery_days DESC;
+```
 
--- 3. Late orders by product category
+**3. Which product categories have the most severely late orders?**
+
+```sql
 SELECT category_en, COUNT(*) AS late_order_count
 FROM fact_orders
 WHERE delivery_risk_category = 'Severely Late'
 GROUP BY category_en
 ORDER BY late_order_count DESC;
+```
 
--- 4. Total revenue and order count by payment type
+**4. What is total revenue and order count by payment type?**
+
+```sql
 SELECT payment_types_used, COUNT(*) AS order_count,
        ROUND(SUM(total_payment_value), 2) AS total_revenue
 FROM fact_orders
 GROUP BY payment_types_used
 ORDER BY total_revenue DESC;
+```
 
--- 5. Orders with missing or zero freight value
+**5. Which orders have missing or zero freight value?**
+
+```sql
 SELECT order_id, seller_id, freight_value
 FROM fact_orders
 WHERE freight_value IS NULL OR freight_value = 0;
+```
 
--- 6. Delivery risk breakdown by state, reshaped into columns
+**6. What is the delivery risk breakdown by state?**
+
+```sql
 SELECT customer_state,
        SUM(CASE WHEN delivery_risk_category = 'On Time / Early' THEN 1 ELSE 0 END) AS on_time,
        SUM(CASE WHEN delivery_risk_category = 'Slightly Late' THEN 1 ELSE 0 END) AS slightly_late,
@@ -76,8 +92,11 @@ SELECT customer_state,
 FROM fact_orders
 GROUP BY customer_state
 ORDER BY severely_late DESC;
+```
 
--- 7. Categories with above-average order value
+**7. Which categories have an above-average order value?**
+
+```sql
 SELECT category_en, ROUND(AVG(total_payment_value), 2) AS avg_order_value
 FROM fact_orders
 GROUP BY category_en
@@ -85,8 +104,11 @@ HAVING AVG(total_payment_value) > (
     SELECT AVG(total_payment_value) FROM fact_orders
 )
 ORDER BY avg_order_value DESC;
+```
 
--- 8. Sellers with above-average freight cost (correlated subquery)
+**8. Which sellers have an above-average freight cost?**
+
+```sql
 SELECT seller_id, ROUND(AVG(freight_value), 2) AS avg_freight
 FROM fact_orders
 GROUP BY seller_id
@@ -94,8 +116,11 @@ HAVING AVG(freight_value) > (
     SELECT AVG(freight_value) FROM fact_orders
 )
 ORDER BY avg_freight DESC;
+```
 
--- 9. Sellers with at least one severely late delivery (EXISTS)
+**9. Which sellers have at least one severely late delivery?**
+
+```sql
 SELECT DISTINCT f.seller_id
 FROM fact_orders f
 WHERE EXISTS (
@@ -103,30 +128,42 @@ WHERE EXISTS (
     WHERE f2.seller_id = f.seller_id
     AND f2.delivery_risk_category = 'Severely Late'
 );
+```
 
--- 10. Order count per customer state as a share of total orders (subquery in SELECT)
+**10. What share of total orders does each state represent?**
+
+```sql
 SELECT customer_state,
        COUNT(*) AS total_orders,
        ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM fact_orders), 2) AS pct_of_all_orders
 FROM fact_orders
 GROUP BY customer_state
 ORDER BY pct_of_all_orders DESC;
+```
 
--- 11. Rank orders by value within each product category
+**11. How does each order rank by value within its product category?**
+
+```sql
 SELECT category_en, customer_state, total_payment_value,
        RANK() OVER (PARTITION BY category_en ORDER BY total_payment_value DESC) AS rank_in_category
 FROM fact_orders
 WHERE category_en != 'unknown';
+```
 
--- 12. Running total of revenue by state, ranked
+**12. What is the running total of revenue by state?**
+
+```sql
 SELECT customer_state,
        SUM(total_payment_value) AS state_revenue,
        SUM(SUM(total_payment_value)) OVER (ORDER BY SUM(total_payment_value) DESC) AS running_total_revenue
 FROM fact_orders
 GROUP BY customer_state
 ORDER BY state_revenue DESC;
+```
 
--- 13. 7-order rolling average of delivery days
+**13. What is the 7-order rolling average of delivery days?**
+
+```sql
 SELECT order_id, delivery_days,
        AVG(delivery_days) OVER (
            ORDER BY order_id
@@ -134,14 +171,20 @@ SELECT order_id, delivery_days,
        ) AS rolling_avg_7
 FROM fact_orders
 WHERE delivery_days IS NOT NULL;
+```
 
--- 14. Percentile rank of every order by value
+**14. What is the percentile rank of every order by value?**
+
+```sql
 SELECT order_id, customer_state, total_payment_value,
        ROUND(PERCENT_RANK() OVER (ORDER BY total_payment_value), 4) AS percentile_rank
 FROM fact_orders
 WHERE total_payment_value IS NOT NULL;
+```
 
--- 15. Revenue per state compared to the cross-state average (chained CTEs)
+**15. How does each state's revenue compare to the cross-state average?**
+
+```sql
 WITH state_totals AS (
     SELECT customer_state, SUM(total_payment_value) AS revenue
     FROM fact_orders
@@ -154,35 +197,50 @@ SELECT st.customer_state, st.revenue,
        ROUND(st.revenue - sa.avg_state_revenue, 2) AS diff_from_avg
 FROM state_totals st, state_avg sa
 ORDER BY diff_from_avg DESC;
+```
 
--- 16. Attach seller location to each order (JOIN)
+**16. Which sellers are located where, and what are they shipping?**
+
+```sql
 SELECT f.order_id, f.category_en, s.seller_city, s.seller_state
 FROM fact_orders f
 JOIN sellers s ON f.seller_id = s.seller_id;
+```
 
--- 17. Total orders and revenue by seller state (JOIN + aggregation)
+**17. What are total orders and revenue by seller state?**
+
+```sql
 SELECT s.seller_state, COUNT(f.order_id) AS total_orders,
        ROUND(SUM(f.total_payment_value), 2) AS total_revenue
 FROM fact_orders f
 JOIN sellers s ON f.seller_id = s.seller_id
 GROUP BY s.seller_state
 ORDER BY total_revenue DESC;
+```
 
--- 18. Sellers whose city differs from their customer's city (JOIN + filter)
+**18. Which orders ship to a different city than the seller's own city?**
+
+```sql
 SELECT f.order_id, f.customer_city, s.seller_city
 FROM fact_orders f
 JOIN sellers s ON f.seller_id = s.seller_id
 WHERE f.customer_city != s.seller_city;
+```
 
--- 19. Average review score by seller state (JOIN + aggregation)
+**19. What is the average review score by seller state?**
+
+```sql
 SELECT s.seller_state, ROUND(AVG(f.review_score), 2) AS avg_review_score
 FROM fact_orders f
 JOIN sellers s ON f.seller_id = s.seller_id
 WHERE f.review_score IS NOT NULL
 GROUP BY s.seller_state
 ORDER BY avg_review_score DESC;
+```
 
--- 20. Sellers who ship to the widest number of distinct states (self-JOIN)
+**20. Which sellers ship to the widest number of distinct states?**
+
+```sql
 SELECT a.seller_id,
        COUNT(DISTINCT a.customer_state) AS distinct_states_served
 FROM fact_orders a
@@ -310,16 +368,16 @@ fact_table = (
 ## Dashboard
 
 ### Executive Summary
-![Executive Summary](images/dashboard-summary.png)
+![Executive Summary](dashboard/dashboard-summary.png)
 
 ### Order Delay Analysis
-![Order Delay Analysis](images/dashboard-order-delay.png)
+![Order Delay Analysis](dashboard/dashboard-order-delay.png)
 
 ### Supplier Performance Analysis
-![Supplier Performance Analysis](images/dashboard-supplier-performance.png)
+![Supplier Performance Analysis](dashboard/dashboard-supplier-performance.png)
 
 ### Delivery Efficiency Analysis
-![Delivery Efficiency Analysis](images/dashboard-delivery-efficiency.png)
+![Delivery Efficiency Analysis](dashboard/dashboard-delivery-efficiency.png)
 
 **Live Dashboard:** *[ADD LIVE DASHBOARD LINK HERE, IF PUBLISHED]*
 
@@ -336,5 +394,3 @@ This project shows that delivery performance across Olist's network is strong ov
 4. Track on-time rate and supplier tier distribution monthly to catch emerging problems early.
 
 ---
-
-*Built as a portfolio project to demonstrate end-to-end analytics skills: data cleaning, SQL, DAX, and dashboard design.*
